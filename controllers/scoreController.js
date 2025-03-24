@@ -52,81 +52,42 @@ async function checkAndResetAttempts(score) {
 }
 
 // Actualizar la puntuación del usuario al finalizar una partida
-exports.updateScore = async (req, res) => {
-  const { points, hasFailed } = req.body; // Cambiado decrementAttempts por hasFailed para mayor claridad
 
-  if (points === undefined || points === null) {
-    return res.status(400).json({ message: 'Se requiere el campo "points" para actualizar la puntuación' });
-  }
+exports.updateScore = async (req, res) => {
+  const { points, hasFailed } = req.body;
 
   try {
-    console.log(`Actualizando puntuación para usuario ${req.user.id}. Puntos: ${points}, ¿Falló?: ${hasFailed}`);
-
     let score = await Score.findOne({ where: { userId: req.user.id } });
 
-    if (!score) {
-      score = await Score.create({
-        userId: req.user.id,
-        bestScore: points > 0 ? points : 0,
-        attemptsLeft: 5,
-        lastAttemptDate: new Date(),
-      });
-      console.log(`Nueva puntuación creada para usuario ${req.user.id} con valor inicial ${points}`);
-      return res.status(200).json({
-        bestScore: score.bestScore,
-        attemptsLeft: score.attemptsLeft,
-        message: 'Puntuación inicial creada'
-      });
-    }
-
-    // Verificar y actualizar vidas si es un nuevo día
+    // Verificar y resetear intentos si es nuevo día
     await checkAndResetAttempts(score);
 
     if (score.attemptsLeft <= 0) {
-      return res.status(403).json({
-        message: 'No tienes intentos restantes. Vuelve mañana para jugar nuevamente.',
-        bestScore: score.bestScore,
-        attemptsLeft: score.attemptsLeft
-      });
+      return res.status(403).json({ message: 'No tienes intentos restantes' });
     }
 
-    // Lógica del juego:
     if (hasFailed) {
-      // El usuario falló: restar una vida
       score.attemptsLeft -= 1;
-      console.log(`Usuario ${req.user.id} falló. Intentos restantes: ${score.attemptsLeft}`);
+      console.log(`Usuario ${req.user.id} falló. Vidas restantes: ${score.attemptsLeft}`);
     } else {
-      // El usuario acertó: actualizar puntuación si es mayor
+      // Solo actualiza el puntaje si es mayor al actual
       if (points > score.bestScore) {
-        console.log(`Nuevo record para usuario ${req.user.id}: ${points} (anterior: ${score.bestScore})`);
         score.bestScore = points;
-
-        try {
-          const user = await User.findByPk(req.user.id);
-          if (user) {
-            user.top = points;
-            await user.save();
-            console.log(`Campo 'top' actualizado en User para ${req.user.id}: ${points}`);
-          }
-        } catch (err) {
-          console.error("Error al actualizar campo 'top' en User:", err);
-        }
+        // Actualizar también en el modelo User si es necesario
       }
     }
 
-    score.lastAttemptDate = new Date();
     await score.save();
 
     res.status(200).json({
       bestScore: score.bestScore,
       attemptsLeft: score.attemptsLeft,
-      message: hasFailed ? 
-        `¡Fallaste! Pierdes una vida. Te quedan ${score.attemptsLeft} intentos.` : 
-        (points > score.bestScore ? '¡Nuevo récord!' : '¡Correcto! +10 puntos')
+      message: hasFailed ? 'Has perdido una vida' : '¡Correcto! Puntos actualizados'
     });
+
   } catch (error) {
-    console.error("Error al actualizar la puntuación del usuario:", error);
-    res.status(500).json({ message: 'Error al actualizar la puntuación' });
+    console.error("Error:", error);
+    res.status(500).json({ message: 'Error al actualizar puntuación' });
   }
 };
 
